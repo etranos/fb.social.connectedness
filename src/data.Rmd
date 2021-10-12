@@ -1,0 +1,116 @@
+---
+title: "fb.social.connectedness"
+author: "Emmanouil Tranos"
+date: "`r format(Sys.time(), '%d %B, %Y, %H:%M')`"
+output: 
+  html_document:
+    df_print: paged
+    toc: true
+    toc_float: true
+knit: (function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding, output_dir = "../output")
+  })
+---
+
+## Prerequisites  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(rprojroot)
+library(igraph)
+library(sf)
+library(rgdal)
+library(knitr)
+library(kableExtra)
+
+# This is the project path
+path <- find_rstudio_root_file()
+```
+
+## Load the SCI data.
+
+[Source](https://data.humdata.org/dataset/social-connectedness-index)
+
+```{r}
+
+path.data <- paste0(path, "/data/raw/gadm1_nuts3_counties_gadm1_nuts3_counties_aug2020.tsv")
+df <- read_tsv(path.data)
+
+look.up.data <- paste0(path, "/data/raw/gadm1_nuts3_counties_levels.csv")
+lookup <- read_csv(look.up.data)
+
+df <- df %>% 
+  left_join(lookup, by=c("user_loc" = "key")) %>% 
+  rename(level.user = level) %>% 
+  left_join(lookup, by=c("fr_loc" = "key")) %>% 
+  rename(level.fr = level,
+         weight = scaled_sci) %>% 
+  arrange(desc(weight))
+
+# sapply(df, function(x) sum(is.na(x)))
+
+# unique(df$level.user)
+# 
+# df %>% filter(level.user == "county" &
+#               level.fr == "county") %>% 
+#   filter(user_loc!=fr_loc)
+
+# mutate(internal = ifelse(level.user == level.fr, 1, 0)) %>% 
+```
+
+## US county tables
+
+We bring spatial data from [here](https://www.census.gov/geographies/mapping-files/time-series/geo/carto-boundary-file.html) 
+and join them with the SCI data to get the county names.
+
+The below table reports the county pairs with descending order of the SCI.
+
+```{r}
+path.geo <- paste0(path, "/data/raw/cb_2018_us_county_20m/cb_2018_us_county_20m.shp")
+usa.shp <- readOGR(path.geo)
+usa.names <- usa.shp@data %>% 
+  mutate(geoid.full = paste0("USA", GEOID)) %>% 
+  arrange(AFFGEOID)
+
+df.us <- df %>% 
+  filter(level.user == "county" &
+         level.fr == "county") %>% 
+  # filter(user_loc!=fr_loc) %>% 
+  left_join(usa.names, by = c("user_loc" = "geoid.full")) %>% 
+  select(user_loc, fr_loc, weight, level.user, level.fr, GEOID, NAME) %>% 
+  rename(GEOID.user = GEOID,
+         NAME.user = NAME) %>% 
+  left_join(usa.names, by = c("fr_loc" = "geoid.full")) %>% 
+  select(user_loc, fr_loc, weight, level.user, level.fr, GEOID.user, NAME.user, GEOID, NAME) %>% 
+  rename(GEOID.fr = GEOID,
+         NAME.fr = NAME) %>% 
+  drop_na() %>% 
+  arrange(desc(weight)) 
+
+df.us %>% slice_head(n = 1000) %>% 
+  kable() %>% 
+  kable_styling("striped", full_width = F) %>% 
+  scroll_box(width = "500px", height = "200px")
+```
+
+The same excluding the county-to-county ties.
+
+```{r}
+# This is LA
+# df.sp %>% filter(user_loc == "USA06037") %>% tail()
+
+# The US islands are missing. 
+# See https://en.wikipedia.org/wiki/List_of_United_States_FIPS_codes_by_county
+# sapply(test, function(x) sum(is.na(x)))
+# test[is.na(test$STATEFP),]
+
+df.us %>% filter(user_loc!=fr_loc) %>% 
+  slice_head(n = 1000) %>% 
+  kable() %>% 
+  kable_styling("striped", full_width = F) %>% 
+  scroll_box(width = "500px", height = "200px")
+
+```
+
